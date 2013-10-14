@@ -22,8 +22,8 @@
 
 #define RES_DIV					4
 #define CAP_FULL_ADC_VALUE		((42*1023)/(11*RES_DIV))	//4.2V/1.1V/4 * 1023
-#define CAP_EMPTE_ADC_VALUE		((30*1023)/(11*RES_DIV))	//3V/1.1V/4 * 1023
-#define CAP_RANGE_ADC_VALUE		(((42-30)*1023)/(11*RES_DIV))
+#define CAP_EMPTE_ADC_VALUE		((10*1023)/(11*RES_DIV))	//1V/1.1V/4 * 1023
+#define CAP_RANGE_ADC_VALUE		(((42-10)*1023)/(11*RES_DIV))
 
 
 void ADC_init(void)
@@ -49,12 +49,23 @@ uint8_t get_vol(void)
 	adc_val = ADC;
 
 	if(adc_val > CAP_EMPTE_ADC_VALUE) {
-		vol = ((adc_val - CAP_EMPTE_ADC_VALUE) * 12) / (CAP_RANGE_ADC_VALUE);
+		vol = ((adc_val - CAP_EMPTE_ADC_VALUE) * 32) / (CAP_RANGE_ADC_VALUE) + 10;
 	} else {
 		vol = 0;
 	}
 
 	return vol;
+}
+
+void beep(void)
+{
+	volatile uint16_t loop;
+
+	PORTB = 0x00;
+	
+	for(loop = 0; loop < 12000; loop++);
+
+	PORTB = 0x08;
 }
 
 void sys_init(void)
@@ -64,8 +75,8 @@ void sys_init(void)
 	CLKPR = (1<<CLKPS1) | (1<<CLKPS0);	//1200KHz
 	//CLKPR = (1<<CLKPS2) | (1<<CLKPS0);	//300KHz
 
-	DDRB = 0x0F;
-	PORTB = 0;
+	DDRB = 0x008;
+	PORTB = 0x08;
 
 	sleep_enable();
 
@@ -81,14 +92,35 @@ ISR(WDT_vect, ISR_NAKED)
 int main(void)
 {
 	uint8_t vol;
+	uint8_t low = 0, high = 0;
 
 	sys_init();
 	ADC_init();
 
 	while(1) {
-		//PORTB = ~PORTB;
 		vol = get_vol();
-		PORTB = (~vol) & 0x0F;
+		if(vol < 30) {
+			if(low++ > 0) {
+				beep();
+				low = 0;
+			}
+		} else if(vol < 32) {
+			if(low++ > 4) {
+				beep();
+				low = 0;
+			}
+		} else {
+			low = 0;
+		}
+
+		if(vol > 42) {
+			if(high < 3) {
+				high++;
+				beep();
+			}
+		} else {
+			high = 0;
+		}
 		// set watchdog in interrupt mode and 128k cycles
 		WDTCR = (0<<WDE) | (1<<WDTIE) | (1<<WDP2) | (1<<WDP1);//1S
 
